@@ -194,12 +194,19 @@ function handleKeyDown(e) {
     }
     
     // Also handle by key for space
-    if (e.code === ' ' || e.key === ' ') {
+    if (e.code === ' ' || e.key === ' ' || e.keyCode === 32) {
         gameState.keys[' '] = true;
     }
     
+    // Handle Shift for slow-mo
+    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.key === 'Shift') {
+        gameState.keys.ShiftLeft = true;
+        gameState.keys.ShiftRight = true;
+        gameState.isSlowMo = true;
+    }
+    
     // Handle one-time presses
-    if (e.code === 'KeyR' && !gameState.isRewinding && gameState.rewindsLeft > 0 && gameState.running) {
+    if ((e.code === 'KeyR' || e.key === 'r' || e.key === 'R') && !gameState.isRewinding && gameState.rewindsLeft > 0 && gameState.running) {
         const now = Date.now();
         if (now - gameState.lastRewindTime > REWIND_COOLDOWN) {
             startRewind();
@@ -207,12 +214,11 @@ function handleKeyDown(e) {
         }
     }
     
-    if (e.code === 'Escape' && gameState.running) {
-        gameState.paused = !gameState.paused;
+    if (e.code === 'Escape' || e.key === 'Escape' || e.keyCode === 27) {
+        if (gameState.running) {
+            gameState.paused = !gameState.paused;
+        }
     }
-    
-    // Debug: log key presses
-    // console.log('Key down:', e.code, e.key);
 }
 
 function handleKeyUp(e) {
@@ -222,12 +228,14 @@ function handleKeyUp(e) {
     }
     
     // Also handle by key for space
-    if (e.code === ' ' || e.key === ' ') {
+    if (e.code === ' ' || e.key === ' ' || e.keyCode === 32) {
         gameState.keys[' '] = false;
     }
     
     // Stop slow mo when Shift is released
-    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.key === 'Shift') {
+        gameState.keys.ShiftLeft = false;
+        gameState.keys.ShiftRight = false;
         gameState.isSlowMo = false;
     }
 }
