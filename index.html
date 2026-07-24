@@ -3,384 +3,668 @@
 <head>
     <title>Chrono Dash</title>
     <style>
-        body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: #111; }
-        canvas { border: 2px solid #444; background: #222; }
-        #ui { position: absolute; top: 10px; left: 10px; color: #0f0; font-family: Arial; }
-        #start { position: absolute; color: #0f0; font-size: 24px; cursor: pointer; }
-        #over { position: absolute; color: #f00; font-size: 32px; display: none; }
+        body { 
+            margin: 0; 
+            padding: 0; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            background: #111; 
+            overflow: hidden;
+        }
+        canvas { 
+            border: 2px solid #444; 
+            background: #222; 
+        }
+        #ui { 
+            position: absolute; 
+            top: 10px; 
+            left: 10px; 
+            color: #0f0; 
+            font-family: Arial, sans-serif;
+        }
+        #start { 
+            position: absolute; 
+            color: #0f0; 
+            font-size: 24px; 
+            cursor: pointer;
+            text-shadow: 0 0 10px #0f0;
+        }
+        #over { 
+            position: absolute; 
+            color: #f00; 
+            font-size: 32px; 
+            display: none;
+            cursor: pointer;
+        }
+        #controls { 
+            position: absolute; 
+            bottom: 10px; 
+            color: #888; 
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
     <div id="ui">Score: <span id="score">0</span> | Time: <span id="time">100%</span> | Rewinds: <span id="rewinds">3</span></div>
-    <div id="start" onclick="start()">CLICK TO START</div>
-    <div id="over" onclick="start()">GAME OVER - Click to restart</div>
-    <canvas id="c" width="800" height="400"></canvas>
+    <div id="start" onclick="startGame()">CLICK TO START</div>
+    <div id="over" onclick="startGame()">GAME OVER - Click to restart</div>
+    <div id="controls">SPACE=Jump | SHIFT=Slow-Mo | R=Rewind | ESC=Pause</div>
+    <canvas id="gameCanvas" width="800" height="400"></canvas>
+    
     <script>
-        const c = document.getElementById('c');
-        const ctx = c.getContext('2d');
+        // ========== CANVAS SETUP ==========
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
         
-        // Game state
-        let running = false;
-        let paused = false;
-        let score = 0;
-        let speed = 5;
-        let timeEnergy = 100;
-        let rewinds = 3;
-        let slowMo = false;
-        let rewinding = false;
-        let rewindProgress = 0;
-        let gameOver = false;
+        // ========== GAME CONSTANTS ==========
+        const GRAVITY = 0.8;
+        const JUMP_FORCE = -12;
+        const PLAYER_WIDTH = 30;
+        const PLAYER_HEIGHT = 50;
+        const GROUND_Y = 340;
+        const BASE_SPEED = 5;
+        const SLOW_MO_FACTOR = 0.4;
+        const TIME_ENERGY_MAX = 100;
+        const REWIND_DURATION = 2.5; // seconds
+        const MAX_REWINDS = 3;
+        const REWIND_COOLDOWN = 1000; // ms
         
-        // Player
-        const player = { x: 100, y: 340, w: 30, h: 50, vy: 0, jumping: false };
+        // ========== GAME STATE ==========
+        let game = {
+            running: false,
+            paused: false,
+            score: 0,
+            highScore: localStorage.getItem('chronoDashHighScore') || 0,
+            speed: BASE_SPEED,
+            timeEnergy: TIME_ENERGY_MAX,
+            rewindsLeft: MAX_REWINDS,
+            lastRewindTime: 0,
+            isSlowMo: false,
+            isRewinding: false,
+            rewindProgress: 0,
+            gameOver: false,
+            cameraOffset: 0
+        };
         
-        // Input
-        const keys = {};
-        window.addEventListener('keydown', e => {
+        // ========== PLAYER ==========
+        let player = {
+            x: 100,
+            y: GROUND_Y,
+            width: PLAYER_WIDTH,
+            height: PLAYER_HEIGHT,
+            velY: 0,
+            isJumping: false,
+            color: '#00ffff'
+        };
+        
+        // ========== WORLD ==========
+        let obstacles = [];
+        let coins = [];
+        let platforms = [];
+        let particles = [];
+        let stars = [];
+        let rewindBuffer = [];
+        
+        // ========== INPUT ==========
+        let keys = {};
+        
+        window.addEventListener('keydown', function(e) {
             keys[e.code] = true;
             keys[e.key] = true;
             
-            // R key for rewind
-            if ((e.code === 'KeyR' || e.key === 'r' || e.key === 'R') && rewinds > 0 && running && !rewinding) {
-                startRewind();
+            // Debug: console.log('Key down:', e.code, e.key);
+            
+            // R key - rewind
+            if ((e.code === 'KeyR' || e.key === 'r' || e.key === 'R') && 
+                game.rewindsLeft > 0 && 
+                game.running && 
+                !game.isRewinding) {
+                const now = Date.now();
+                if (now - game.lastRewindTime > REWIND_COOLDOWN) {
+                    startRewind();
+                    game.lastRewindTime = now;
+                }
             }
             
-            // ESC for pause
-            if (e.code === 'Escape' && running) {
-                paused = !paused;
+            // ESC - pause
+            if (e.code === 'Escape' && game.running) {
+                game.paused = !game.paused;
             }
         });
         
-        window.addEventListener('keyup', e => {
+        window.addEventListener('keyup', function(e) {
             keys[e.code] = false;
             keys[e.key] = false;
             
-            // Shift released
+            // Shift released - stop slow-mo
             if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.key === 'Shift') {
-                slowMo = false;
+                game.isSlowMo = false;
             }
         });
         
         // Right click for slow-mo
-        window.addEventListener('mousedown', e => {
-            if (e.button === 2 && running) {
+        window.addEventListener('mousedown', function(e) {
+            if (e.button === 2 && game.running) {
                 e.preventDefault();
-                slowMo = true;
+                game.isSlowMo = true;
             }
         });
-        window.addEventListener('contextmenu', e => e.preventDefault());
         
-        // Obstacles
-        const obstacles = [];
-        const coins = [];
-        const platforms = [];
-        const particles = [];
-        const rewindBuffer = [];
+        window.addEventListener('contextmenu', function(e) {
+            if (game.running) e.preventDefault();
+        });
         
-        // Start game
-        function start() {
-            player.x = 100;
-            player.y = 340;
-            player.vy = 0;
-            player.jumping = false;
-            score = 0;
-            speed = 5;
-            timeEnergy = 100;
-            rewinds = 3;
-            slowMo = false;
-            rewinding = false;
-            gameOver = false;
-            paused = false;
-            obstacles.length = 0;
-            coins.length = 0;
-            platforms.length = 0;
-            particles.length = 0;
-            rewindBuffer.length = 0;
-            running = true;
-            document.getElementById('over').style.display = 'none';
+        // ========== INITIALIZE STARS ==========
+        function initStars() {
+            stars = [];
+            for (let i = 0; i < 50; i++) {
+                stars.push({
+                    x: Math.random() * 800,
+                    y: Math.random() * 340,
+                    size: Math.random() * 2 + 1,
+                    speed: Math.random() * 0.5 + 0.1
+                });
+            }
         }
         
-        function gameOverFunc() {
-            gameOver = true;
-            running = false;
-            if (score > (localStorage.getItem('high') || 0)) {
-                localStorage.setItem('high', score);
+        // ========== START GAME ==========
+        function startGame() {
+            // Reset player
+            player.x = 100;
+            player.y = GROUND_Y;
+            player.velY = 0;
+            player.isJumping = false;
+            
+            // Reset game state
+            game.running = true;
+            game.paused = false;
+            game.score = 0;
+            game.speed = BASE_SPEED;
+            game.timeEnergy = TIME_ENERGY_MAX;
+            game.rewindsLeft = MAX_REWINDS;
+            game.isSlowMo = false;
+            game.isRewinding = false;
+            game.rewindProgress = 0;
+            game.gameOver = false;
+            game.cameraOffset = 0;
+            
+            // Clear world
+            obstacles = [];
+            coins = [];
+            platforms = [];
+            particles = [];
+            rewindBuffer = [];
+            
+            // Hide screens
+            document.getElementById('start').style.display = 'none';
+            document.getElementById('over').style.display = 'none';
+            
+            // Initialize stars
+            initStars();
+            
+            // Start game loop
+            lastTime = performance.now();
+            gameLoop();
+        }
+        
+        // ========== GAME OVER ==========
+        function gameOver() {
+            game.gameOver = true;
+            game.running = false;
+            
+            // Update high score
+            if (game.score > game.highScore) {
+                game.highScore = game.score;
+                localStorage.setItem('chronoDashHighScore', game.highScore);
             }
+            
+            // Show game over
             document.getElementById('over').style.display = 'block';
         }
         
+        // ========== START REWIND ==========
         function startRewind() {
-            if (rewinding || rewindBuffer.length === 0) return;
-            rewinding = true;
-            rewinds--;
-            rewindProgress = 0;
+            if (game.isRewinding || rewindBuffer.length === 0) return;
             
+            game.isRewinding = true;
+            game.rewindsLeft--;
+            game.rewindProgress = 0;
+            
+            // Add particles
             for (let i = 0; i < 20; i++) {
-                particles.push({ x: player.x + 15, y: player.y + 25, vx: (Math.random()-0.5)*5, vy: (Math.random()-0.5)*5-2, life: 1, color: '#f0f' });
+                particles.push({
+                    x: player.x + player.width / 2,
+                    y: player.y + player.height / 2,
+                    vx: (Math.random() - 0.5) * 5,
+                    vy: (Math.random() - 0.5) * 5 - 2,
+                    life: 1,
+                    color: '#ff00ff'
+                });
             }
         }
         
-        function addParticle(x, y, color) {
-            for (let i = 0; i < 5; i++) {
-                particles.push({ x, y, vx: (Math.random()-0.5)*5, vy: (Math.random()-0.5)*5-2, life: 1, color });
+        // ========== ADD PARTICLES ==========
+        function addParticles(x, y, count, color) {
+            for (let i = 0; i < count; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 5,
+                    vy: (Math.random() - 0.5) * 5 - 2,
+                    life: 1,
+                    color: color
+                });
             }
         }
         
-        // Main loop
-        function loop() {
-            if (!running) {
-                ctx.fillStyle = '#222';
-                ctx.fillRect(0, 0, 800, 400);
-                requestAnimationFrame(loop);
-                return;
-            }
-            
-            if (paused) {
-                ctx.fillStyle = 'rgba(0,0,0,0.5)';
-                ctx.fillRect(0, 0, 800, 400);
-                ctx.fillStyle = '#fff';
-                ctx.font = '32px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText('PAUSED', 400, 200);
-                requestAnimationFrame(loop);
-                return;
-            }
-            
-            // Clear
-            ctx.fillStyle = '#111';
-            ctx.fillRect(0, 0, 800, 400);
-            
-            // Handle slow-mo
-            if ((keys['ShiftLeft'] || keys['ShiftRight'] || keys['Shift']) && timeEnergy > 0) {
-                slowMo = true;
-            }
-            
-            const dt = slowMo ? 0.4 : 1;
-            
-            // Update player
-            player.x += speed * dt;
-            
-            // Gravity
-            player.vy += 0.8 * dt;
-            player.y += player.vy * dt;
-            
-            // Jump
-            const onGround = player.y >= 340;
-            let onPlatform = false;
-            for (const p of platforms) {
-                if (player.y + player.h >= p.y && player.y + player.h <= p.y + p.h && player.x + player.w > p.x && player.x < p.x + p.w) {
-                    onPlatform = true;
-                    break;
-                }
-            }
-            
-            const jumpPressed = keys[' '] || keys['Space'] || keys['ArrowUp'] || keys['Up'];
-            if (jumpPressed && (onGround || onPlatform) && !player.jumping) {
-                player.vy = -12;
-                player.jumping = true;
-                addParticle(player.x + 15, 340, '#0ff');
-            }
-            
-            // Land
-            if (player.y >= 340) {
-                player.y = 340;
-                player.vy = 0;
-                player.jumping = false;
-            }
-            
-            for (const p of platforms) {
-                if (player.y + player.h >= p.y && player.y + player.h <= p.y + p.h && player.x + player.w > p.x && player.x < p.x + p.w && player.vy > 0) {
-                    player.y = p.y - player.h;
-                    player.vy = 0;
-                    player.jumping = false;
-                }
-            }
-            
-            // Save for rewind
-            if (running && !rewinding && Math.random() < 0.1) {
-                rewindBuffer.push({ x: player.x, y: player.y, vy: player.vy, jumping: player.jumping, score, speed });
-                if (rewindBuffer.length > 300) rewindBuffer.shift();
-            }
-            
-            // Rewind
-            if (rewinding) {
-                rewindProgress += dt / 2.5;
-                if (rewindProgress >= 1) {
-                    rewinding = false;
-                    if (rewindBuffer.length > 0) {
-                        const s = rewindBuffer[0];
-                        player.x = s.x;
-                        player.y = s.y;
-                        player.vy = s.vy;
-                        player.jumping = s.jumping;
-                        score = s.score;
-                        speed = s.speed;
-                    }
-                    addParticle(player.x + 15, player.y + 25, '#f0f');
-                } else {
-                    const idx = Math.floor((1 - rewindProgress) * rewindBuffer.length);
-                    if (idx >= 0 && idx < rewindBuffer.length) {
-                        const s = rewindBuffer[idx];
-                        player.x = s.x;
-                        player.y = s.y;
-                        player.vy = s.vy;
-                        player.jumping = s.jumping;
-                        score = s.score;
-                        speed = s.speed;
-                    }
-                }
-            }
-            
-            // Time energy
-            if (slowMo) {
-                timeEnergy -= 0.5 * dt;
-                if (timeEnergy <= 0) {
-                    timeEnergy = 0;
-                    slowMo = false;
-                }
-            } else {
-                timeEnergy = Math.min(100, timeEnergy + 0.2 * dt);
-            }
-            
-            // Spawn obstacles
+        // ========== SPAWN OBSTACLES ==========
+        function spawnObstacles() {
             if (Math.random() < 0.01) {
                 const types = ['gap', 'spike', 'wall'];
-                const t = types[Math.floor(Math.random() * types.length)];
-                let o;
-                if (t === 'gap') o = { x: 800, y: 340, w: 40 + Math.random() * 60, h: 20, type: 'gap', color: '#111' };
-                else if (t === 'spike') o = { x: 800, y: 310, w: 30, h: 30, type: 'spike', color: '#f00' };
-                else o = { x: 800, y: 260, w: 20, h: 80, type: 'wall', color: '#444' };
-                obstacles.push(o);
+                const type = types[Math.floor(Math.random() * types.length)];
+                let obstacle;
+                
+                switch (type) {
+                    case 'gap':
+                        obstacle = {
+                            x: 800 + game.cameraOffset,
+                            y: GROUND_Y - 20,
+                            width: 40 + Math.random() * 60,
+                            height: 20,
+                            type: 'gap',
+                            color: '#1a1a2e'
+                        };
+                        break;
+                    case 'spike':
+                        obstacle = {
+                            x: 800 + game.cameraOffset,
+                            y: GROUND_Y - 30,
+                            width: 30,
+                            height: 30,
+                            type: 'spike',
+                            color: '#ff0000'
+                        };
+                        break;
+                    case 'wall':
+                        obstacle = {
+                            x: 800 + game.cameraOffset,
+                            y: GROUND_Y - 80,
+                            width: 20,
+                            height: 80,
+                            type: 'wall',
+                            color: '#444444'
+                        };
+                        break;
+                }
+                obstacles.push(obstacle);
             }
             
             // Spawn coins
             if (Math.random() < 0.005) {
-                coins.push({ x: 800, y: 200 + Math.random() * 100, w: 20, h: 20, color: '#ff0' });
+                coins.push({
+                    x: 800 + game.cameraOffset,
+                    y: 200 + Math.random() * 100,
+                    width: 20,
+                    height: 20,
+                    color: '#ffff00'
+                });
             }
             
             // Spawn platforms
             if (Math.random() < 0.003) {
-                platforms.push({ x: 800, y: 200 + Math.random() * 100, w: 60 + Math.random() * 40, h: 15, color: '#0f0' });
+                platforms.push({
+                    x: 800 + game.cameraOffset,
+                    y: 200 + Math.random() * 100,
+                    width: 60 + Math.random() * 40,
+                    height: 15,
+                    color: '#00ff00'
+                });
             }
-            
-            // Move world
-            for (const o of obstacles) o.x -= speed * dt;
-            for (const o of coins) o.x -= speed * dt;
-            for (const o of platforms) o.x -= speed * dt;
-            
-            // Remove off-screen
-            obstacles.forEach((o, i) => { if (o.x + o.w < 0) obstacles.splice(i, 1); });
-            coins.forEach((o, i) => { if (o.x + o.w < 0) coins.splice(i, 1); });
-            platforms.forEach((o, i) => { if (o.x + o.w < 0) platforms.splice(i, 1); });
-            
-            // Collisions
-            for (const o of obstacles) {
-                if (o.type === 'gap') {
-                    if (player.x + player.w > o.x && player.x < o.x + o.w && player.y + player.h > o.y && player.y + player.h < o.y + o.h) {
-                        gameOverFunc();
+        }
+        
+        // ========== CHECK COLLISIONS ==========
+        function checkCollisions() {
+            // Check obstacles
+            for (const obstacle of obstacles) {
+                if (obstacle.type === 'gap') {
+                    if (player.x + player.width > obstacle.x &&
+                        player.x < obstacle.x + obstacle.width &&
+                        player.y + player.height > obstacle.y &&
+                        player.y + player.height < obstacle.y + obstacle.height) {
+                        gameOver();
                         return;
                     }
                 } else {
-                    if (player.x + player.w > o.x && player.x < o.x + o.w && player.y + player.h > o.y && player.y < o.y + o.h) {
-                        gameOverFunc();
+                    if (player.x + player.width > obstacle.x &&
+                        player.x < obstacle.x + obstacle.width &&
+                        player.y + player.height > obstacle.y &&
+                        player.y < obstacle.y + obstacle.height) {
+                        gameOver();
                         return;
                     }
                 }
             }
             
+            // Check coins
             for (let i = coins.length - 1; i >= 0; i--) {
-                const o = coins[i];
-                if (player.x + player.w > o.x && player.x < o.x + o.w && player.y + player.h > o.y && player.y < o.y + o.h) {
+                const coin = coins[i];
+                if (player.x + player.width > coin.x &&
+                    player.x < coin.x + coin.width &&
+                    player.y + player.height > coin.y &&
+                    player.y < coin.y + coin.height) {
                     coins.splice(i, 1);
-                    timeEnergy = Math.min(100, timeEnergy + 20);
-                    score += 100;
-                    addParticle(o.x + 10, o.y + 10, '#ff0');
+                    game.timeEnergy = Math.min(TIME_ENERGY_MAX, game.timeEnergy + 20);
+                    game.score += 100;
+                    addParticles(coin.x + coin.width / 2, coin.y + coin.height / 2, 10, '#ffff00');
                 }
             }
             
-            if (player.y > 400) gameOverFunc();
+            // Check if player fell off screen
+            if (player.y > 400) {
+                gameOver();
+            }
+        }
+        
+        // ========== UPDATE GAME ==========
+        function update(deltaTime) {
+            if (!game.running || game.paused || game.gameOver) return;
+            
+            // Handle slow-mo from Shift
+            if ((keys['ShiftLeft'] || keys['ShiftRight'] || keys['Shift']) && game.timeEnergy > 0) {
+                game.isSlowMo = true;
+            }
+            
+            const dt = game.isSlowMo ? SLOW_MO_FACTOR : 1;
+            
+            // Update player
+            player.x += game.speed * dt;
+            
+            // Apply gravity
+            player.velY += GRAVITY * dt;
+            player.y += player.velY * dt;
+            
+            // Check for jump
+            const isJumpPressed = keys[' '] || keys['Space'] || keys['ArrowUp'] || keys['Up'];
+            const isOnGround = player.y >= GROUND_Y;
+            let isOnPlatform = false;
+            
+            for (const platform of platforms) {
+                if (player.y + player.height >= platform.y &&
+                    player.y + player.height <= platform.y + platform.height &&
+                    player.x + player.width > platform.x &&
+                    player.x < platform.x + platform.width) {
+                    isOnPlatform = true;
+                    break;
+                }
+            }
+            
+            if (isJumpPressed && (isOnGround || isOnPlatform) && !player.isJumping) {
+                player.velY = JUMP_FORCE;
+                player.isJumping = true;
+                const groundLevel = isOnGround ? GROUND_Y : player.y + player.height + 5;
+                addParticles(player.x + player.width / 2, groundLevel, 10, '#00ffff');
+            }
+            
+            // Land on ground
+            if (player.y >= GROUND_Y) {
+                player.y = GROUND_Y;
+                player.velY = 0;
+                player.isJumping = false;
+            }
+            
+            // Land on platforms
+            for (const platform of platforms) {
+                if (player.y + player.height >= platform.y &&
+                    player.y + player.height <= platform.y + platform.height &&
+                    player.x + player.width > platform.x &&
+                    player.x < platform.x + platform.width &&
+                    player.velY > 0) {
+                    player.y = platform.y - player.height;
+                    player.velY = 0;
+                    player.isJumping = false;
+                }
+            }
+            
+            // Camera follows player
+            game.cameraOffset = player.x - 200;
+            
+            // Save position for rewind
+            if (Math.random() < 0.1) {
+                rewindBuffer.push({
+                    x: player.x,
+                    y: player.y,
+                    velY: player.velY,
+                    isJumping: player.isJumping,
+                    score: game.score,
+                    speed: game.speed,
+                    cameraOffset: game.cameraOffset
+                });
+                if (rewindBuffer.length > 300) rewindBuffer.shift();
+            }
+            
+            // Update rewind
+            if (game.isRewinding) {
+                game.rewindProgress += dt / REWIND_DURATION;
+                if (game.rewindProgress >= 1) {
+                    game.isRewinding = false;
+                    if (rewindBuffer.length > 0) {
+                        const state = rewindBuffer[0];
+                        player.x = state.x;
+                        player.y = state.y;
+                        player.velY = state.velY;
+                        player.isJumping = state.isJumping;
+                        game.score = state.score;
+                        game.speed = state.speed;
+                        game.cameraOffset = state.cameraOffset;
+                    }
+                    addParticles(player.x + player.width / 2, player.y + player.height / 2, 20, '#ff00ff');
+                } else {
+                    const index = Math.floor((1 - game.rewindProgress) * rewindBuffer.length);
+                    if (index >= 0 && index < rewindBuffer.length) {
+                        const state = rewindBuffer[index];
+                        player.x = state.x;
+                        player.y = state.y;
+                        player.velY = state.velY;
+                        player.isJumping = state.isJumping;
+                        game.score = state.score;
+                        game.speed = state.speed;
+                        game.cameraOffset = state.cameraOffset;
+                    }
+                }
+            }
+            
+            // Update time energy
+            if (game.isSlowMo) {
+                game.timeEnergy -= 0.5 * dt;
+                if (game.timeEnergy <= 0) {
+                    game.timeEnergy = 0;
+                    game.isSlowMo = false;
+                }
+            } else {
+                game.timeEnergy = Math.min(TIME_ENERGY_MAX, game.timeEnergy + 0.2 * dt);
+            }
+            
+            // Spawn obstacles
+            spawnObstacles();
+            
+            // Move world objects
+            for (const obj of obstacles) obj.x -= game.speed * dt;
+            for (const obj of coins) obj.x -= game.speed * dt;
+            for (const obj of platforms) obj.x -= game.speed * dt;
+            for (const star of stars) {
+                star.x -= star.speed * (game.isSlowMo ? SLOW_MO_FACTOR : 1);
+                if (star.x < game.cameraOffset - 100) {
+                    star.x = game.cameraOffset + 800 + 100;
+                    star.y = Math.random() * 340;
+                }
+            }
+            
+            // Remove off-screen objects
+            obstacles = obstacles.filter(o => o.x + o.width > game.cameraOffset - 100);
+            coins = coins.filter(o => o.x + o.width > game.cameraOffset - 100);
+            platforms = platforms.filter(o => o.x + o.width > game.cameraOffset - 100);
+            
+            // Check collisions
+            checkCollisions();
             
             // Increase difficulty
-            speed = 5 + score * 0.002;
-            score += speed * 0.1 * dt;
+            game.speed = BASE_SPEED + (game.score * SPEED_INCREASE);
+            game.score += game.speed * 0.1 * dt;
             
-            // Update UI
-            document.getElementById('score').textContent = Math.floor(score);
-            document.getElementById('time').textContent = `${Math.floor(timeEnergy)}%`;
-            document.getElementById('rewinds').textContent = rewinds;
-            
-            // Draw ground
-            ctx.fillStyle = '#222';
-            ctx.fillRect(0, 340, 800, 60);
-            
-            // Draw obstacles
-            for (const o of obstacles) {
-                ctx.fillStyle = o.color;
-                if (o.type === 'spike') {
-                    ctx.beginPath();
-                    ctx.moveTo(o.x, o.y + o.h);
-                    ctx.lineTo(o.x + o.w/2, o.y);
-                    ctx.lineTo(o.x + o.w, o.y + o.h);
-                    ctx.fill();
-                } else {
-                    ctx.fillRect(o.x, o.y, o.w, o.h);
-                }
-            }
-            
-            // Draw coins
-            for (const o of coins) {
-                ctx.fillStyle = o.color;
-                ctx.beginPath();
-                ctx.arc(o.x + o.w/2, o.y + o.h/2, o.w/2, 0, Math.PI * 2);
-                ctx.fill();
-            }
-            
-            // Draw platforms
-            for (const o of platforms) {
-                ctx.fillStyle = o.color;
-                ctx.fillRect(o.x, o.y, o.w, o.h);
-            }
-            
-            // Draw player
-            ctx.fillStyle = '#0ff';
-            ctx.fillRect(player.x, player.y, player.w, player.h);
-            ctx.strokeStyle = '#fff';
-            ctx.strokeRect(player.x, player.y, player.w, player.h);
-            
-            // Draw particles
+            // Update particles
             for (let i = particles.length - 1; i >= 0; i--) {
                 const p = particles[i];
                 p.x += p.vx * dt;
                 p.y += p.vy * dt;
                 p.life -= 0.05 * dt;
-                if (p.life <= 0) {
-                    particles.splice(i, 1);
-                    continue;
-                }
-                ctx.fillStyle = p.color;
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+        }
+        
+        // ========== RENDER GAME ==========
+        function render() {
+            ctx.fillStyle = '#1a1a2e';
+            ctx.fillRect(0, 0, 800, 400);
+            
+            // Draw background
+            const gradient = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+            gradient.addColorStop(0, '#0f0f23');
+            gradient.addColorStop(1, '#1a1a2e');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 800, GROUND_Y);
+            
+            // Draw stars
+            ctx.fillStyle = '#ffffff';
+            for (const star of stars) {
                 ctx.beginPath();
-                ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+                ctx.arc(star.x - game.cameraOffset, star.y, star.size, 0, Math.PI * 2);
                 ctx.fill();
             }
             
-            // Effects
-            if (slowMo) {
-                ctx.fillStyle = 'rgba(0,255,255,0.1)';
-                ctx.fillRect(0, 0, 800, 400);
-            }
-            if (rewinding) {
-                ctx.fillStyle = `rgba(255,0,255,${0.3 * (1 - rewindProgress)})`;
-                ctx.fillRect(0, 0, 800, 400);
+            // Draw ground
+            ctx.fillStyle = '#16213e';
+            ctx.fillRect(0, GROUND_Y, 800, 60);
+            
+            // Draw grid
+            ctx.strokeStyle = 'rgba(0, 255, 255, 0.1)';
+            ctx.lineWidth = 1;
+            for (let x = -100; x < 800 + 100; x += 20) {
+                ctx.beginPath();
+                ctx.moveTo(x - game.cameraOffset, 0);
+                ctx.lineTo(x - game.cameraOffset, GROUND_Y);
+                ctx.stroke();
             }
             
-            requestAnimationFrame(loop);
+            // Draw platforms
+            for (const platform of platforms) {
+                ctx.fillStyle = platform.color;
+                ctx.fillRect(platform.x - game.cameraOffset, platform.y, platform.width, platform.height);
+                ctx.strokeStyle = '#00aa00';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(platform.x - game.cameraOffset, platform.y, platform.width, platform.height);
+            }
+            
+            // Draw obstacles
+            for (const obstacle of obstacles) {
+                ctx.fillStyle = obstacle.color;
+                if (obstacle.type === 'spike') {
+                    ctx.beginPath();
+                    ctx.moveTo(obstacle.x - game.cameraOffset, obstacle.y + obstacle.height);
+                    ctx.lineTo(obstacle.x + obstacle.width / 2 - game.cameraOffset, obstacle.y);
+                    ctx.lineTo(obstacle.x + obstacle.width - game.cameraOffset, obstacle.y + obstacle.height);
+                    ctx.closePath();
+                    ctx.fill();
+                } else {
+                    ctx.fillRect(obstacle.x - game.cameraOffset, obstacle.y, obstacle.width, obstacle.height);
+                }
+            }
+            
+            // Draw coins
+            for (const coin of coins) {
+                ctx.fillStyle = coin.color;
+                ctx.beginPath();
+                ctx.arc(coin.x + coin.width / 2 - game.cameraOffset, coin.y + coin.height / 2, coin.width / 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.beginPath();
+                ctx.arc(coin.x + coin.width / 2 - game.cameraOffset - 3, coin.y + coin.height / 2 - 3, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            // Draw player
+            ctx.fillStyle = player.color;
+            ctx.fillRect(player.x - game.cameraOffset, player.y, player.width, player.height);
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(player.x - game.cameraOffset, player.y, player.width, player.height);
+            
+            // Draw player face
+            ctx.fillStyle = '#1a1a2e';
+            ctx.fillRect(player.x + 10 - game.cameraOffset, player.y + 10, 5, 5);
+            ctx.fillRect(player.x + player.width - 15 - game.cameraOffset, player.y + 10, 5, 5);
+            ctx.strokeStyle = '#1a1a2e';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(player.x + player.width / 2 - game.cameraOffset, player.y + 25, 8, 0, Math.PI);
+            ctx.stroke();
+            
+            // Draw particles
+            for (const p of particles) {
+                const alpha = p.life;
+                ctx.fillStyle = p.color + alpha.toString();
+                ctx.beginPath();
+                ctx.arc(p.x - game.cameraOffset, p.y, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            // Draw effects
+            if (game.isSlowMo) {
+                ctx.fillStyle = 'rgba(0, 255, 255, 0.1)';
+                ctx.fillRect(0, 0, 800, 400);
+            }
+            if (game.isRewinding) {
+                ctx.fillStyle = `rgba(255, 0, 255, ${0.3 * (1 - game.rewindProgress)})`;
+                ctx.fillRect(0, 0, 800, 400);
+            }
+            if (game.paused) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(0, 0, 800, 400);
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '32px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('PAUSED', 400, 200);
+            }
+            
+            // Update UI
+            document.getElementById('score').textContent = Math.floor(game.score);
+            document.getElementById('time').textContent = `${Math.floor(game.timeEnergy)}%`;
+            document.getElementById('rewinds').textContent = game.rewindsLeft;
         }
         
-        // Show start screen
-        document.getElementById('start').style.display = 'block';
+        // ========== GAME LOOP ==========
+        let lastTime = 0;
+        function gameLoop(currentTime = 0) {
+            const deltaTime = Math.min((currentTime - lastTime) / 16.67, 3);
+            lastTime = currentTime;
+            
+            if (game.running) {
+                update(deltaTime);
+            }
+            render();
+            
+            if (game.running || !game.gameOver) {
+                requestAnimationFrame(gameLoop);
+            }
+        }
         
-        // Start the game loop
-        requestAnimationFrame(loop);
+        // Initialize
+        document.getElementById('start').style.display = 'block';
+        initStars();
+        
+        // Start with start screen
+        render();
     </script>
 </body>
 </html>
