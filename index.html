@@ -1,157 +1,386 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chrono Dash - Endless Runner</title>
+    <title>Chrono Dash</title>
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background: #1a1a2e;
-            font-family: 'Courier New', monospace;
-            overflow: hidden;
-            color: #eee;
-        }
-        canvas {
-            border: 4px solid #16213e;
-            border-radius: 8px;
-            box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
-        }
-        #ui {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-        }
-        #score {
-            font-size: 24px;
-            color: #00ffff;
-            text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
-        }
-        #timeMeter {
-            width: 200px;
-            height: 20px;
-            background: #16213e;
-            border: 2px solid #00ffff;
-            border-radius: 10px;
-            margin-top: 10px;
-            overflow: hidden;
-        }
-        #timeMeterFill {
-            height: 100%;
-            width: 100%;
-            background: linear-gradient(90deg, #00ffff, #00aaff);
-            transition: width 0.1s;
-        }
-        #rewindCounter {
-            margin-top: 10px;
-            font-size: 18px;
-            color: #ff00ff;
-        }
-        #gameOver {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-            display: none;
-        }
-        #gameOver h1 {
-            font-size: 48px;
-            color: #ff0000;
-            text-shadow: 0 0 20px rgba(255, 0, 0, 0.7);
-        }
-        #gameOver p {
-            font-size: 24px;
-            margin: 20px 0;
-        }
-        #restartBtn {
-            padding: 12px 30px;
-            font-size: 20px;
-            background: #00ffff;
-            color: #1a1a2e;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-family: 'Courier New', monospace;
-            font-weight: bold;
-        }
-        #restartBtn:hover {
-            background: #00aaff;
-        }
-        #startScreen {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-        }
-        #startScreen h1 {
-            font-size: 48px;
-            color: #00ffff;
-            text-shadow: 0 0 20px rgba(0, 255, 255, 0.7);
-        }
-        #startScreen p {
-            font-size: 18px;
-            margin: 20px 0;
-            max-width: 400px;
-        }
-        #startBtn {
-            padding: 12px 30px;
-            font-size: 20px;
-            background: #00ff00;
-            color: #1a1a2e;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-family: 'Courier New', monospace;
-            font-weight: bold;
-        }
-        #startBtn:hover {
-            background: #00cc00;
-        }
-        #controlsInfo {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            font-size: 14px;
-            color: #888;
-            text-align: center;
-        }
+        body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: #111; }
+        canvas { border: 2px solid #444; background: #222; }
+        #ui { position: absolute; top: 10px; left: 10px; color: #0f0; font-family: Arial; }
+        #start { position: absolute; color: #0f0; font-size: 24px; cursor: pointer; }
+        #over { position: absolute; color: #f00; font-size: 32px; display: none; }
     </style>
 </head>
 <body>
-    <div id="ui">
-        <div id="score">Score: 0</div>
-        <div id="timeMeter">
-            <div id="timeMeterFill"></div>
-        </div>
-        <div id="rewindCounter">Rewinds: 3</div>
-    </div>
-    
-    <div id="startScreen">
-        <h1>CHRONO DASH</h1>
-        <p>An endless runner with time control. Jump over obstacles and manipulate time to survive!</p>
-        <button id="startBtn">START GAME</button>
-    </div>
-    
-    <div id="gameOver">
-        <h1>GAME OVER</h1>
-        <p id="finalScore">Score: 0</p>
-        <button id="restartBtn">PLAY AGAIN</button>
-    </div>
-    
-    <div id="controlsInfo">
-        <p>Controls: SPACE/↑ = Jump | SHIFT = Slow Time | R = Rewind | ESC = Pause</p>
-    </div>
-    
-    <canvas id="gameCanvas"></canvas>
-    
-    <script src="game.js"></script>
+    <div id="ui">Score: <span id="score">0</span> | Time: <span id="time">100%</span> | Rewinds: <span id="rewinds">3</span></div>
+    <div id="start" onclick="start()">CLICK TO START</div>
+    <div id="over" onclick="start()">GAME OVER - Click to restart</div>
+    <canvas id="c" width="800" height="400"></canvas>
+    <script>
+        const c = document.getElementById('c');
+        const ctx = c.getContext('2d');
+        
+        // Game state
+        let running = false;
+        let paused = false;
+        let score = 0;
+        let speed = 5;
+        let timeEnergy = 100;
+        let rewinds = 3;
+        let slowMo = false;
+        let rewinding = false;
+        let rewindProgress = 0;
+        let gameOver = false;
+        
+        // Player
+        const player = { x: 100, y: 340, w: 30, h: 50, vy: 0, jumping: false };
+        
+        // Input
+        const keys = {};
+        window.addEventListener('keydown', e => {
+            keys[e.code] = true;
+            keys[e.key] = true;
+            
+            // R key for rewind
+            if ((e.code === 'KeyR' || e.key === 'r' || e.key === 'R') && rewinds > 0 && running && !rewinding) {
+                startRewind();
+            }
+            
+            // ESC for pause
+            if (e.code === 'Escape' && running) {
+                paused = !paused;
+            }
+        });
+        
+        window.addEventListener('keyup', e => {
+            keys[e.code] = false;
+            keys[e.key] = false;
+            
+            // Shift released
+            if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.key === 'Shift') {
+                slowMo = false;
+            }
+        });
+        
+        // Right click for slow-mo
+        window.addEventListener('mousedown', e => {
+            if (e.button === 2 && running) {
+                e.preventDefault();
+                slowMo = true;
+            }
+        });
+        window.addEventListener('contextmenu', e => e.preventDefault());
+        
+        // Obstacles
+        const obstacles = [];
+        const coins = [];
+        const platforms = [];
+        const particles = [];
+        const rewindBuffer = [];
+        
+        // Start game
+        function start() {
+            player.x = 100;
+            player.y = 340;
+            player.vy = 0;
+            player.jumping = false;
+            score = 0;
+            speed = 5;
+            timeEnergy = 100;
+            rewinds = 3;
+            slowMo = false;
+            rewinding = false;
+            gameOver = false;
+            paused = false;
+            obstacles.length = 0;
+            coins.length = 0;
+            platforms.length = 0;
+            particles.length = 0;
+            rewindBuffer.length = 0;
+            running = true;
+            document.getElementById('over').style.display = 'none';
+        }
+        
+        function gameOverFunc() {
+            gameOver = true;
+            running = false;
+            if (score > (localStorage.getItem('high') || 0)) {
+                localStorage.setItem('high', score);
+            }
+            document.getElementById('over').style.display = 'block';
+        }
+        
+        function startRewind() {
+            if (rewinding || rewindBuffer.length === 0) return;
+            rewinding = true;
+            rewinds--;
+            rewindProgress = 0;
+            
+            for (let i = 0; i < 20; i++) {
+                particles.push({ x: player.x + 15, y: player.y + 25, vx: (Math.random()-0.5)*5, vy: (Math.random()-0.5)*5-2, life: 1, color: '#f0f' });
+            }
+        }
+        
+        function addParticle(x, y, color) {
+            for (let i = 0; i < 5; i++) {
+                particles.push({ x, y, vx: (Math.random()-0.5)*5, vy: (Math.random()-0.5)*5-2, life: 1, color });
+            }
+        }
+        
+        // Main loop
+        function loop() {
+            if (!running) {
+                ctx.fillStyle = '#222';
+                ctx.fillRect(0, 0, 800, 400);
+                requestAnimationFrame(loop);
+                return;
+            }
+            
+            if (paused) {
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.fillRect(0, 0, 800, 400);
+                ctx.fillStyle = '#fff';
+                ctx.font = '32px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('PAUSED', 400, 200);
+                requestAnimationFrame(loop);
+                return;
+            }
+            
+            // Clear
+            ctx.fillStyle = '#111';
+            ctx.fillRect(0, 0, 800, 400);
+            
+            // Handle slow-mo
+            if ((keys['ShiftLeft'] || keys['ShiftRight'] || keys['Shift']) && timeEnergy > 0) {
+                slowMo = true;
+            }
+            
+            const dt = slowMo ? 0.4 : 1;
+            
+            // Update player
+            player.x += speed * dt;
+            
+            // Gravity
+            player.vy += 0.8 * dt;
+            player.y += player.vy * dt;
+            
+            // Jump
+            const onGround = player.y >= 340;
+            let onPlatform = false;
+            for (const p of platforms) {
+                if (player.y + player.h >= p.y && player.y + player.h <= p.y + p.h && player.x + player.w > p.x && player.x < p.x + p.w) {
+                    onPlatform = true;
+                    break;
+                }
+            }
+            
+            const jumpPressed = keys[' '] || keys['Space'] || keys['ArrowUp'] || keys['Up'];
+            if (jumpPressed && (onGround || onPlatform) && !player.jumping) {
+                player.vy = -12;
+                player.jumping = true;
+                addParticle(player.x + 15, 340, '#0ff');
+            }
+            
+            // Land
+            if (player.y >= 340) {
+                player.y = 340;
+                player.vy = 0;
+                player.jumping = false;
+            }
+            
+            for (const p of platforms) {
+                if (player.y + player.h >= p.y && player.y + player.h <= p.y + p.h && player.x + player.w > p.x && player.x < p.x + p.w && player.vy > 0) {
+                    player.y = p.y - player.h;
+                    player.vy = 0;
+                    player.jumping = false;
+                }
+            }
+            
+            // Save for rewind
+            if (running && !rewinding && Math.random() < 0.1) {
+                rewindBuffer.push({ x: player.x, y: player.y, vy: player.vy, jumping: player.jumping, score, speed });
+                if (rewindBuffer.length > 300) rewindBuffer.shift();
+            }
+            
+            // Rewind
+            if (rewinding) {
+                rewindProgress += dt / 2.5;
+                if (rewindProgress >= 1) {
+                    rewinding = false;
+                    if (rewindBuffer.length > 0) {
+                        const s = rewindBuffer[0];
+                        player.x = s.x;
+                        player.y = s.y;
+                        player.vy = s.vy;
+                        player.jumping = s.jumping;
+                        score = s.score;
+                        speed = s.speed;
+                    }
+                    addParticle(player.x + 15, player.y + 25, '#f0f');
+                } else {
+                    const idx = Math.floor((1 - rewindProgress) * rewindBuffer.length);
+                    if (idx >= 0 && idx < rewindBuffer.length) {
+                        const s = rewindBuffer[idx];
+                        player.x = s.x;
+                        player.y = s.y;
+                        player.vy = s.vy;
+                        player.jumping = s.jumping;
+                        score = s.score;
+                        speed = s.speed;
+                    }
+                }
+            }
+            
+            // Time energy
+            if (slowMo) {
+                timeEnergy -= 0.5 * dt;
+                if (timeEnergy <= 0) {
+                    timeEnergy = 0;
+                    slowMo = false;
+                }
+            } else {
+                timeEnergy = Math.min(100, timeEnergy + 0.2 * dt);
+            }
+            
+            // Spawn obstacles
+            if (Math.random() < 0.01) {
+                const types = ['gap', 'spike', 'wall'];
+                const t = types[Math.floor(Math.random() * types.length)];
+                let o;
+                if (t === 'gap') o = { x: 800, y: 340, w: 40 + Math.random() * 60, h: 20, type: 'gap', color: '#111' };
+                else if (t === 'spike') o = { x: 800, y: 310, w: 30, h: 30, type: 'spike', color: '#f00' };
+                else o = { x: 800, y: 260, w: 20, h: 80, type: 'wall', color: '#444' };
+                obstacles.push(o);
+            }
+            
+            // Spawn coins
+            if (Math.random() < 0.005) {
+                coins.push({ x: 800, y: 200 + Math.random() * 100, w: 20, h: 20, color: '#ff0' });
+            }
+            
+            // Spawn platforms
+            if (Math.random() < 0.003) {
+                platforms.push({ x: 800, y: 200 + Math.random() * 100, w: 60 + Math.random() * 40, h: 15, color: '#0f0' });
+            }
+            
+            // Move world
+            for (const o of obstacles) o.x -= speed * dt;
+            for (const o of coins) o.x -= speed * dt;
+            for (const o of platforms) o.x -= speed * dt;
+            
+            // Remove off-screen
+            obstacles.forEach((o, i) => { if (o.x + o.w < 0) obstacles.splice(i, 1); });
+            coins.forEach((o, i) => { if (o.x + o.w < 0) coins.splice(i, 1); });
+            platforms.forEach((o, i) => { if (o.x + o.w < 0) platforms.splice(i, 1); });
+            
+            // Collisions
+            for (const o of obstacles) {
+                if (o.type === 'gap') {
+                    if (player.x + player.w > o.x && player.x < o.x + o.w && player.y + player.h > o.y && player.y + player.h < o.y + o.h) {
+                        gameOverFunc();
+                        return;
+                    }
+                } else {
+                    if (player.x + player.w > o.x && player.x < o.x + o.w && player.y + player.h > o.y && player.y < o.y + o.h) {
+                        gameOverFunc();
+                        return;
+                    }
+                }
+            }
+            
+            for (let i = coins.length - 1; i >= 0; i--) {
+                const o = coins[i];
+                if (player.x + player.w > o.x && player.x < o.x + o.w && player.y + player.h > o.y && player.y < o.y + o.h) {
+                    coins.splice(i, 1);
+                    timeEnergy = Math.min(100, timeEnergy + 20);
+                    score += 100;
+                    addParticle(o.x + 10, o.y + 10, '#ff0');
+                }
+            }
+            
+            if (player.y > 400) gameOverFunc();
+            
+            // Increase difficulty
+            speed = 5 + score * 0.002;
+            score += speed * 0.1 * dt;
+            
+            // Update UI
+            document.getElementById('score').textContent = Math.floor(score);
+            document.getElementById('time').textContent = `${Math.floor(timeEnergy)}%`;
+            document.getElementById('rewinds').textContent = rewinds;
+            
+            // Draw ground
+            ctx.fillStyle = '#222';
+            ctx.fillRect(0, 340, 800, 60);
+            
+            // Draw obstacles
+            for (const o of obstacles) {
+                ctx.fillStyle = o.color;
+                if (o.type === 'spike') {
+                    ctx.beginPath();
+                    ctx.moveTo(o.x, o.y + o.h);
+                    ctx.lineTo(o.x + o.w/2, o.y);
+                    ctx.lineTo(o.x + o.w, o.y + o.h);
+                    ctx.fill();
+                } else {
+                    ctx.fillRect(o.x, o.y, o.w, o.h);
+                }
+            }
+            
+            // Draw coins
+            for (const o of coins) {
+                ctx.fillStyle = o.color;
+                ctx.beginPath();
+                ctx.arc(o.x + o.w/2, o.y + o.h/2, o.w/2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            // Draw platforms
+            for (const o of platforms) {
+                ctx.fillStyle = o.color;
+                ctx.fillRect(o.x, o.y, o.w, o.h);
+            }
+            
+            // Draw player
+            ctx.fillStyle = '#0ff';
+            ctx.fillRect(player.x, player.y, player.w, player.h);
+            ctx.strokeStyle = '#fff';
+            ctx.strokeRect(player.x, player.y, player.w, player.h);
+            
+            // Draw particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx * dt;
+                p.y += p.vy * dt;
+                p.life -= 0.05 * dt;
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                    continue;
+                }
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            // Effects
+            if (slowMo) {
+                ctx.fillStyle = 'rgba(0,255,255,0.1)';
+                ctx.fillRect(0, 0, 800, 400);
+            }
+            if (rewinding) {
+                ctx.fillStyle = `rgba(255,0,255,${0.3 * (1 - rewindProgress)})`;
+                ctx.fillRect(0, 0, 800, 400);
+            }
+            
+            requestAnimationFrame(loop);
+        }
+        
+        // Show start screen
+        document.getElementById('start').style.display = 'block';
+        
+        // Start the game loop
+        requestAnimationFrame(loop);
+    </script>
 </body>
 </html>
