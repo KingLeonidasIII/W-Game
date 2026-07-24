@@ -1,1 +1,157 @@
-
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chrono Dash - Endless Runner</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: #1a1a2e;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+            color: #eee;
+        }
+        canvas {
+            border: 4px solid #16213e;
+            border-radius: 8px;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+        }
+        #score {
+            font-size: 24px;
+            color: #00ffff;
+            text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+        }
+        #timeMeter {
+            width: 200px;
+            height: 20px;
+            background: #16213e;
+            border: 2px solid #00ffff;
+            border-radius: 10px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        #timeMeterFill {
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, #00ffff, #00aaff);
+            transition: width 0.1s;
+        }
+        #rewindCounter {
+            margin-top: 10px;
+            font-size: 18px;
+            color: #ff00ff;
+        }
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            display: none;
+        }
+        #gameOver h1 {
+            font-size: 48px;
+            color: #ff0000;
+            text-shadow: 0 0 20px rgba(255, 0, 0, 0.7);
+        }
+        #gameOver p {
+            font-size: 24px;
+            margin: 20px 0;
+        }
+        #restartBtn {
+            padding: 12px 30px;
+            font-size: 20px;
+            background: #00ffff;
+            color: #1a1a2e;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+        }
+        #restartBtn:hover {
+            background: #00aaff;
+        }
+        #startScreen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+        #startScreen h1 {
+            font-size: 48px;
+            color: #00ffff;
+            text-shadow: 0 0 20px rgba(0, 255, 255, 0.7);
+        }
+        #startScreen p {
+            font-size: 18px;
+            margin: 20px 0;
+            max-width: 400px;
+        }
+        #startBtn {
+            padding: 12px 30px;
+            font-size: 20px;
+            background: #00ff00;
+            color: #1a1a2e;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+        }
+        #startBtn:hover {
+            background: #00cc00;
+        }
+        #controlsInfo {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 14px;
+            color: #888;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div id="score">Score: 0</div>
+        <div id="timeMeter">
+            <div id="timeMeterFill"></div>
+        </div>
+        <div id="rewindCounter">Rewinds: 3</div>
+    </div>
+    
+    <div id="startScreen">
+        <h1>CHRONO DASH</h1>
+        <p>An endless runner with time control. Jump over obstacles and manipulate time to survive!</p>
+        <button id="startBtn">START GAME</button>
+    </div>
+    
+    <div id="gameOver">
+        <h1>GAME OVER</h1>
+        <p id="finalScore">Score: 0</p>
+        <button id="restartBtn">PLAY AGAIN</button>
+    </div>
+    
+    <div id="controlsInfo">
+        <p>Controls: SPACE/↑ = Jump | SHIFT = Slow Time | R = Rewind | ESC = Pause</p>
+    </div>
+    
+    <canvas id="gameCanvas"></canvas>
+    
+    <script src="game.js"></script>
+</body>
+</html>
