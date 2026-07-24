@@ -56,13 +56,15 @@ const gameState = {
     coins: [],
     platforms: [],
     particles: [],
-    // Input state
+    stars: [],
+    // Input state - use code values directly
     keys: {
-        Space: false,
-        ArrowUp: false,
-        Shift: false,
-        KeyR: false,
-        Escape: false
+        ' ': false,      // Space
+        'ArrowUp': false,
+        'ShiftLeft': false,
+        'ShiftRight': false,
+        'KeyR': false,
+        'Escape': false
     },
     // Time tracking
     frameCount: 0,
@@ -87,6 +89,9 @@ function init() {
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('click', handleClick);
+    window.addEventListener('contextmenu', e => {
+        if (gameState.running) e.preventDefault();
+    });
     
     // Button events
     document.getElementById('startBtn').addEventListener('click', startGame);
@@ -94,6 +99,16 @@ function init() {
     
     // Start screen
     showStartScreen();
+    
+    // Initialize stars
+    for (let i = 0; i < 50; i++) {
+        gameState.stars.push({
+            x: Math.random() * GAME_WIDTH,
+            y: Math.random() * (GAME_HEIGHT - GROUND_HEIGHT),
+            size: Math.random() * 2 + 1,
+            speed: Math.random() * 0.5 + 0.1
+        });
+    }
     
     // Game loop
     requestAnimationFrame(gameLoop);
@@ -135,6 +150,7 @@ function resetGame() {
     gameState.isRewinding = false;
     gameState.rewindProgress = 0;
     gameState.gameOver = false;
+    gameState.paused = false;
     gameState.frameCount = 0;
     gameState.lastObstacleSpawn = 0;
     gameState.lastCoinSpawn = 0;
@@ -172,32 +188,47 @@ function gameOver() {
 
 // ========== INPUT HANDLING ==========
 function handleKeyDown(e) {
+    // Handle by code
     if (e.code in gameState.keys) {
         gameState.keys[e.code] = true;
-        
-        // Handle one-time presses
-        if (e.code === 'KeyR' && !gameState.isRewinding && gameState.rewindsLeft > 0 && gameState.running) {
-            const now = Date.now();
-            if (now - gameState.lastRewindTime > REWIND_COOLDOWN) {
-                startRewind();
-                gameState.lastRewindTime = now;
-            }
-        }
-        
-        if (e.code === 'Escape' && gameState.running) {
-            gameState.paused = !gameState.paused;
+    }
+    
+    // Also handle by key for space
+    if (e.code === ' ' || e.key === ' ') {
+        gameState.keys[' '] = true;
+    }
+    
+    // Handle one-time presses
+    if (e.code === 'KeyR' && !gameState.isRewinding && gameState.rewindsLeft > 0 && gameState.running) {
+        const now = Date.now();
+        if (now - gameState.lastRewindTime > REWIND_COOLDOWN) {
+            startRewind();
+            gameState.lastRewindTime = now;
         }
     }
+    
+    if (e.code === 'Escape' && gameState.running) {
+        gameState.paused = !gameState.paused;
+    }
+    
+    // Debug: log key presses
+    // console.log('Key down:', e.code, e.key);
 }
 
 function handleKeyUp(e) {
+    // Handle by code
     if (e.code in gameState.keys) {
         gameState.keys[e.code] = false;
-        
-        // Stop slow mo when Shift is released
-        if (e.code === 'Shift') {
-            gameState.isSlowMo = false;
-        }
+    }
+    
+    // Also handle by key for space
+    if (e.code === ' ' || e.key === ' ') {
+        gameState.keys[' '] = false;
+    }
+    
+    // Stop slow mo when Shift is released
+    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+        gameState.isSlowMo = false;
     }
 }
 
@@ -208,11 +239,6 @@ function handleClick(e) {
         gameState.isSlowMo = true;
     }
 }
-
-// Prevent right-click context menu
-document.addEventListener('contextmenu', e => {
-    if (gameState.running) e.preventDefault();
-});
 
 // ========== GAME LOGIC ==========
 function update() {
@@ -257,16 +283,38 @@ function update() {
 function updatePlayer(deltaTime) {
     const player = gameState.player;
     
+    // Move player forward automatically
+    player.x += gameState.speed * deltaTime;
+    
     // Apply gravity
     player.velY += GRAVITY * deltaTime;
     player.y += player.velY * deltaTime;
     
-    // Jumping
-    if ((gameState.keys.Space || gameState.keys.ArrowUp) && !player.isJumping && player.y >= gameState.groundY - player.height) {
+    // Check for jump input - use either space code or key
+    const isJumpPressed = gameState.keys[' '] || gameState.keys.ArrowUp;
+    
+    // Jumping - only if on ground or platform
+    const isOnGround = player.y >= gameState.groundY - player.height;
+    let isOnPlatform = false;
+    
+    for (const platform of gameState.platforms) {
+        if (player.y + player.height >= platform.y &&
+            player.y + player.height <= platform.y + platform.height &&
+            player.x + player.width > platform.x &&
+            player.x < platform.x + platform.width) {
+            isOnPlatform = true;
+            break;
+        }
+    }
+    
+    const canJump = (isOnGround || isOnPlatform) && !player.isJumping;
+    
+    if (isJumpPressed && canJump) {
         player.velY = JUMP_FORCE;
         player.isJumping = true;
         // Add jump particles
-        addParticles(player.x + player.width / 2, gameState.groundY, 10, '#00ffff');
+        const groundLevel = isOnGround ? gameState.groundY : player.y + player.height + 5;
+        addParticles(player.x + player.width / 2, groundLevel, 10, '#00ffff');
     }
     
     // Land on ground
@@ -290,7 +338,7 @@ function updatePlayer(deltaTime) {
     }
     
     // Save position for rewind
-    if (gameState.frameCount % 5 === 0) {
+    if (gameState.frameCount % 2 === 0) {  // Save more frequently
         gameState.rewindBuffer.push({
             x: player.x,
             y: player.y,
@@ -340,6 +388,15 @@ function updateWorld(deltaTime) {
             gameState.platforms.splice(i, 1);
         }
     }
+    
+    // Move stars
+    for (let star of gameState.stars) {
+        star.x -= star.speed * (gameState.isSlowMo ? SLOW_MO_FACTOR : 1);
+        if (star.x < 0) {
+            star.x = GAME_WIDTH;
+            star.y = Math.random() * (GAME_HEIGHT - GROUND_HEIGHT);
+        }
+    }
 }
 
 function updateTimeEnergy(deltaTime) {
@@ -362,15 +419,8 @@ function startRewind() {
     gameState.rewindProgress = 0;
     gameState.rewindBufferIndex = gameState.rewindBuffer.length - 1;
     
-    // Save current state to return to if rewind completes
-    gameState.rewindReturnState = {
-        x: gameState.player.x,
-        y: gameState.player.y,
-        velY: gameState.player.velY,
-        isJumping: gameState.player.isJumping,
-        score: gameState.score,
-        speed: gameState.speed
-    };
+    // Add particles for rewind effect
+    addParticles(gameState.player.x + gameState.player.width / 2, gameState.player.y + gameState.player.height / 2, 20, '#ff00ff');
 }
 
 function updateRewind(deltaTime) {
@@ -382,20 +432,23 @@ function updateRewind(deltaTime) {
         // Rewind complete
         gameState.isRewinding = false;
         // Restore to the start of rewind
-        const startState = gameState.rewindBuffer[0];
-        gameState.player.x = startState.x;
-        gameState.player.y = startState.y;
-        gameState.player.velY = startState.velY;
-        gameState.player.isJumping = startState.isJumping;
-        gameState.score = startState.score;
-        gameState.speed = startState.speed;
+        if (gameState.rewindBuffer.length > 0) {
+            const startState = gameState.rewindBuffer[0];
+            gameState.player.x = startState.x;
+            gameState.player.y = startState.y;
+            gameState.player.velY = startState.velY;
+            gameState.player.isJumping = startState.isJumping;
+            gameState.score = startState.score;
+            gameState.speed = startState.speed;
+        }
         
         // Clear obstacles, coins, platforms that spawned during rewind
-        gameState.obstacles = gameState.obstacles.filter(obs => obs.x > gameState.player.x - GAME_WIDTH);
-        gameState.coins = gameState.coins.filter(coin => coin.x > gameState.player.x - GAME_WIDTH);
-        gameState.platforms = gameState.platforms.filter(plat => plat.x > gameState.player.x - GAME_WIDTH);
+        const playerX = gameState.player.x;
+        gameState.obstacles = gameState.obstacles.filter(obs => obs.x > playerX - GAME_WIDTH);
+        gameState.coins = gameState.coins.filter(coin => coin.x > playerX - GAME_WIDTH);
+        gameState.platforms = gameState.platforms.filter(plat => plat.x > playerX - GAME_WIDTH);
         
-        // Add particles for rewind effect
+        // Add particles for rewind complete effect
         addParticles(gameState.player.x + gameState.player.width / 2, gameState.player.y + gameState.player.height / 2, 20, '#ff00ff');
     } else {
         // Interpolate through rewind buffer
@@ -653,7 +706,10 @@ function render() {
     // Draw particles
     for (const p of gameState.particles) {
         const alpha = p.life / p.maxLife;
-        ctx.fillStyle = p.color.replace(')', `, ${alpha})`).replace('rgb', 'rgba');
+        const colorWithAlpha = p.color.startsWith('#') ? 
+            `rgba(${parseInt(p.color.slice(1), 16) >> 16}, ${(parseInt(p.color.slice(1), 16) >> 8) & 0xFF}, ${parseInt(p.color.slice(1), 16) & 0xFF}, ${alpha})` :
+            p.color;
+        ctx.fillStyle = colorWithAlpha;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
         ctx.fill();
@@ -685,41 +741,20 @@ function render() {
 }
 
 function drawBackground(ctx) {
-    // Starfield effect
-    if (gameState.frameCount % 10 === 0) {
-        gameState.stars = gameState.stars || [];
-        if (gameState.stars.length < 50) {
-            gameState.stars.push({
-                x: Math.random() * GAME_WIDTH,
-                y: Math.random() * (GAME_HEIGHT - GROUND_HEIGHT),
-                size: Math.random() * 2 + 1,
-                speed: Math.random() * 0.5 + 0.1
-            });
-        }
-    }
-    
-    if (gameState.stars) {
-        ctx.fillStyle = '#ffffff';
-        for (const star of gameState.stars) {
-            ctx.beginPath();
-            ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Move stars
-            star.x -= star.speed * (gameState.isSlowMo ? SLOW_MO_FACTOR : 1);
-            if (star.x < 0) {
-                star.x = GAME_WIDTH;
-                star.y = Math.random() * (GAME_HEIGHT - GROUND_HEIGHT);
-            }
-        }
-    }
-    
     // Gradient sky
     const gradient = ctx.createLinearGradient(0, 0, 0, gameState.groundY);
     gradient.addColorStop(0, '#0f0f23');
     gradient.addColorStop(1, '#1a1a2e');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, GAME_WIDTH, gameState.groundY);
+    
+    // Draw stars
+    ctx.fillStyle = '#ffffff';
+    for (const star of gameState.stars) {
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+        ctx.fill();
+    }
 }
 
 function drawPlayer(ctx) {
